@@ -168,6 +168,31 @@ func (b *backend) handleReadItem(ctx context.Context, req *logical.Request, data
 		field_map[fields[i].Label] = fields[i].Value
 	}
 
+	// Surface file attachments alongside fields. Document-category items
+	// store their body as a file; this makes the file content available to
+	// callers (e.g. Vault template stanzas) under a stable key.
+	//
+	// Two keys per file are exposed:
+	//   - the file's name (e.g. "key.pem") — natural for Document items
+	//     that carry a single canonical file
+	//   - "_file_<filename>" — collision-safe alternative when an item also
+	//     defines a regular field with the same label
+	//
+	// On collision (an item field and a file share the same label), the
+	// regular field wins for the bare-name key; the prefixed key always
+	// resolves to the file content.
+	for _, file := range item.Files {
+		content, err := client.GetFileContent(file)
+		if err != nil {
+			return nil, errwrap.Wrapf(fmt.Sprintf("Unable to fetch content of file %q: {{err}}", file.Name), err)
+		}
+		stringContent := string(content)
+		field_map["_file_"+file.Name] = stringContent
+		if _, exists := field_map[file.Name]; !exists {
+			field_map[file.Name] = stringContent
+		}
+	}
+
 	return &logical.Response{
 		Data: field_map,
 	}, nil

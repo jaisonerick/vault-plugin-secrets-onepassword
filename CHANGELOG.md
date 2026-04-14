@@ -12,6 +12,25 @@
 
 ---
 
+[//]: # (START/v1.3.0)
+# v1.3.0
+
+## Features
+  * `read op/items/<item>` now exposes file attachments alongside fields.
+    Each file surfaces under both `<filename>` (when no field collides) and
+    `_file_<filename>` (collision-safe). Document-category items — whose
+    body is a file — become directly readable from Vault template stanzas
+    without a separate file API. Useful for delivering PEM keys, certificates,
+    SSH keys, or other file-shaped material.
+
+## Fixes
+ * none
+
+## Security
+ * none
+
+---
+
 [//]: # (START/v1.1.0)
 # v1.1.0
 

@@ -187,8 +187,16 @@ func getFile(uuid string, itemQuery string, vaultQuery string) (*onepassword.Fil
 	return nil, fmt.Errorf("This method is currently not supported by the test client")
 }
 
+// FileContents lets tests register canned file bodies keyed by file ID.
+// The default mock returns the registered bytes; unregistered file IDs return
+// an error so unintended fetches are visible.
+var FileContents = map[string][]byte{}
+
 func getFileContent(file *onepassword.File) ([]byte, error) {
-	return nil, fmt.Errorf("This method is currently not supported by the test client")
+	if content, ok := FileContents[file.ID]; ok {
+		return content, nil
+	}
+	return nil, fmt.Errorf("file %q (id %s) has no canned content registered in the test mock", file.Name, file.ID)
 }
 
 func getFiles(itemQuery string, vaultQuery string) ([]onepassword.File, error) {

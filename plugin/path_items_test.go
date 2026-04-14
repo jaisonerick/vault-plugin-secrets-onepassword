@@ -168,6 +168,73 @@ func testDeleteItem(t *testing.T, b logical.Backend, s logical.Storage, id strin
 	}
 }
 
+// TestReadItemSurfacesAttachedFiles confirms handleReadItem exposes file
+// attachments under both `<filename>` and `_file_<filename>` keys, so
+// document-category items (whose body is the file) are usable from Vault
+// template stanzas. The bare-name key defers to a same-named regular field
+// when both are present.
+func TestReadItemSurfacesAttachedFiles(t *testing.T) {
+	b, reqStorage := getTestBackendWithCachedClient(t)
+	const vault = "hfnjvi6aymbsnfc2xeeoheizda"
+
+	keyContent := []byte("-----BEGIN RSA PRIVATE KEY-----\nFAKE\n-----END RSA PRIVATE KEY-----\n")
+	bareCollisionContent := []byte("not the regular field value")
+
+	itemID := RandID()
+	keyFileID := RandID()
+	collisionFileID := RandID()
+
+	FileContents[keyFileID] = keyContent
+	FileContents[collisionFileID] = bareCollisionContent
+	defer delete(FileContents, keyFileID)
+	defer delete(FileContents, collisionFileID)
+
+	Items[itemID] = &onepassword.Item{
+		ID:       itemID,
+		Title:    "loki-iam-ra-key",
+		Vault:    onepassword.ItemVault{ID: vault},
+		Category: onepassword.Document,
+		Fields: []*onepassword.ItemField{
+			{Label: "passphrase", Value: "rotate-me"},
+			{Label: "notes", Value: "ignored by collision check"},
+		},
+		Files: []*onepassword.File{
+			{ID: keyFileID, Name: "key.pem", Size: len(keyContent)},
+			{ID: collisionFileID, Name: "passphrase", Size: len(bareCollisionContent)},
+		},
+	}
+	defer delete(Items, itemID)
+
+	resp, err := b.HandleRequest(context.Background(), &logical.Request{
+		Operation: logical.ReadOperation,
+		Path:      fmt.Sprintf("vaults/%s/items/%s", vault, itemID),
+		Storage:   reqStorage,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resp == nil || resp.IsError() {
+		t.Fatalf("unexpected error response: %v", resp)
+	}
+
+	// Bare-name key resolves to the file content for non-colliding files.
+	if got, want := resp.Data["key.pem"], string(keyContent); got != want {
+		t.Errorf("key.pem: got %q, want %q", got, want)
+	}
+	// Prefixed key always resolves to the file content.
+	if got, want := resp.Data["_file_key.pem"], string(keyContent); got != want {
+		t.Errorf("_file_key.pem: got %q, want %q", got, want)
+	}
+	// Bare collision: regular field wins.
+	if got, want := resp.Data["passphrase"], "rotate-me"; got != want {
+		t.Errorf("passphrase (bare collision): got %q, want %q", got, want)
+	}
+	// Prefixed collision: file content remains accessible.
+	if got, want := resp.Data["_file_passphrase"], string(bareCollisionContent); got != want {
+		t.Errorf("_file_passphrase: got %q, want %q", got, want)
+	}
+}
+
 func testReadItem(t *testing.T, b logical.Backend, s logical.Storage, expected map[string]interface{}, id string) {
 	resp, err := b.HandleRequest(context.Background(), &logical.Request{
 		Operation: logical.ReadOperation,
